@@ -27,21 +27,10 @@ import com.dtstack.flinkx.rdb.type.TypeConverterInterface;
 import com.dtstack.flinkx.rdb.util.DBUtil;
 import com.dtstack.flinkx.reader.DataReader;
 import com.dtstack.flinkx.reader.MetaColumn;
-import com.dtstack.flinkx.util.ClassUtil;
-import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.java.typeutils.RowTypeInfo;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.types.Row;
-import java.sql.Connection;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
-import java.sql.Time;
-import java.sql.Timestamp;
-import java.util.Date;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * The Reader plugin for any database that can be connected via JDBC.
@@ -63,11 +52,7 @@ public class JdbcDataReader extends DataReader {
 
     protected List<MetaColumn> metaColumns;
 
-    protected String[] columnTypes;
-
     protected String table;
-
-    protected Connection connection;
 
     protected String where;
 
@@ -75,7 +60,7 @@ public class JdbcDataReader extends DataReader {
 
     protected String increColumn;
 
-    protected Long startLocation;
+    protected String startLocation;
 
     protected int fetchSize;
 
@@ -104,11 +89,7 @@ public class JdbcDataReader extends DataReader {
         queryTimeOut = readerConfig.getParameter().getIntVal(JdbcConfigKeys.KEY_QUERY_TIME_OUT,0);
         splitKey = readerConfig.getParameter().getStringVal(JdbcConfigKeys.KEY_SPLIK_KEY);
         increColumn = readerConfig.getParameter().getStringVal(JdbcConfigKeys.KEY_INCRE_COLUMN);
-
-        String startLocationStr = readerConfig.getParameter().getStringVal(JdbcConfigKeys.KEY_START_LOCATION,null);
-        if(startLocationStr != null){
-            startLocation = Long.parseLong(startLocationStr);
-        }
+        startLocation = readerConfig.getParameter().getStringVal(JdbcConfigKeys.KEY_START_LOCATION,null);
     }
 
     @Override
@@ -150,35 +131,12 @@ public class JdbcDataReader extends DataReader {
     }
 
     private String getIncreColType(){
-        boolean containsIncreCol = false;
         for (MetaColumn metaColumn : metaColumns) {
             if(metaColumn.getName().equals(increColumn)){
-                containsIncreCol = true;
-                break;
+                return metaColumn.getType();
             }
         }
 
-        if (!containsIncreCol){
-            MetaColumn metaIncreCol = new MetaColumn();
-            metaIncreCol.setName(increColumn);
-            metaColumns.add(metaIncreCol);
-        }
-
-        ClassUtil.forName(databaseInterface.getDriverClass(), getClass().getClassLoader());
-        DBUtil.analyzeTable(dbUrl,username,password,databaseInterface,table, metaColumns);
-
-        String type = null;
-        for (MetaColumn metaColumn : metaColumns) {
-            if(metaColumn.getName().equals(increColumn)){
-                type = metaColumn.getType();
-                break;
-            }
-        }
-
-        if(type == null){
-            throw new IllegalArgumentException("There is no " + increColumn +" field in the " + table +" table");
-        }
-
-        return type;
+        throw new IllegalArgumentException("There is no " + increColumn +" field in the columns");
     }
 }

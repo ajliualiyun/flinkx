@@ -30,7 +30,6 @@ import com.dtstack.flinkx.util.DateUtil;
 import com.dtstack.flinkx.util.StringUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.common.accumulators.Accumulator;
-import org.apache.flink.api.common.accumulators.LongMaximum;
 import org.apache.flink.api.common.io.DefaultInputSplitAssigner;
 import org.apache.flink.api.common.io.statistics.BaseStatistics;
 import org.apache.flink.configuration.Configuration;
@@ -40,7 +39,6 @@ import org.apache.flink.core.io.InputSplitAssigner;
 import org.apache.flink.types.Row;
 import java.io.IOException;
 import java.sql.*;
-import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.Date;
 
@@ -96,7 +94,7 @@ public class JdbcInputFormat extends RichInputFormat {
 
     protected String increColType;
 
-    protected Long startLocation;
+    protected String startLocation;
 
     private int increColIndex;
 
@@ -106,11 +104,9 @@ public class JdbcInputFormat extends RichInputFormat {
 
     protected StringAccumulator tableColAccumulator;
 
-    protected LongMaximum endLocationAccumulator;
+    protected MaximumAccumulator endLocationAccumulator;
 
     protected StringAccumulator startLocationAccumulator;
-
-    private static ThreadLocal<SimpleDateFormat> dateStrFormat = ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyyMMddHHmmss"));
 
     public JdbcInputFormat() {
         resultSetType = ResultSet.TYPE_FORWARD_ONLY;
@@ -132,7 +128,7 @@ public class JdbcInputFormat extends RichInputFormat {
         }
 
         if(!accumulatorMap.containsKey(Metrics.END_LOCATION)){
-            endLocationAccumulator = new LongMaximum();
+            endLocationAccumulator = new MaximumAccumulator();
             getRuntimeContext().addAccumulator(Metrics.END_LOCATION,endLocationAccumulator);
         }
 
@@ -140,7 +136,7 @@ public class JdbcInputFormat extends RichInputFormat {
             endLocationAccumulator.add(startLocation);
             if(!accumulatorMap.containsKey(Metrics.START_LOCATION)){
                 startLocationAccumulator = new StringAccumulator();
-                startLocationAccumulator.add(String.valueOf(startLocation));
+                startLocationAccumulator.add(startLocation);
                 getRuntimeContext().addAccumulator(Metrics.START_LOCATION,startLocationAccumulator);
             }
         }
@@ -167,9 +163,7 @@ public class JdbcInputFormat extends RichInputFormat {
                 String m = parameterValues[inputSplit.getSplitNumber()][1].toString();
                 queryTemplate = queryTemplate.replace("${N}",n).replace("${M}",m);
 
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(String.format("Executing '%s' with parameters %s", queryTemplate, Arrays.deepToString(parameterValues[inputSplit.getSplitNumber()])));
-                }
+                LOG.warn(String.format("Executing '%s' with parameters %s", queryTemplate, Arrays.deepToString(parameterValues[inputSplit.getSplitNumber()])));
             }
 
             if(EDatabaseType.MySQL == databaseInterface.getDatabaseType()){
@@ -256,14 +250,14 @@ public class JdbcInputFormat extends RichInputFormat {
                 if (ColumnType.isTimeType(increColType)){
                     Timestamp increVal = resultSet.getTimestamp(increColIndex + 1);
                     if(increVal != null){
-                        endLocationAccumulator.add(getLocation(increVal));
+                        endLocationAccumulator.add(String.valueOf(getLocation(increVal)));
                     }
                 } else if(ColumnType.isNumberType(increColType)){
-                    endLocationAccumulator.add(resultSet.getLong(increColIndex + 1));
+                    endLocationAccumulator.add(String.valueOf(resultSet.getLong(increColIndex + 1)));
                 } else {
                     String increVal = resultSet.getString(increColIndex + 1);
                     if(increVal != null){
-                        endLocationAccumulator.add(Long.parseLong(increVal));
+                        endLocationAccumulator.add(increVal);
                     }
                 }
             }
@@ -299,14 +293,6 @@ public class JdbcInputFormat extends RichInputFormat {
 
     @Override
     public void closeInternal() throws IOException {
-        try {
-            if(dbConn != null && !dbConn.isClosed()){
-                dbConn.commit();
-            }
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-
         DBUtil.closeDBResources(resultSet,statement,dbConn);
         parameterValues = null;
     }
